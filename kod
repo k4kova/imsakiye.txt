@@ -1,0 +1,100 @@
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include <WiFi.h>
+#include "time.h"
+
+#define BUZZER_PIN  2
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+
+const char* ssid = "wifi adı";
+const char* password = "wifi şifre";
+
+const char* ntpServer = "pool.ntp.org";
+const long  gmtOffset_sec = 3 * 3600;  // Türkiye için GMT+3
+const int   daylightOffset_sec = 0;
+
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+
+struct Vakit {
+  int gun;
+  int imsak_saat;
+  int imsak_dakika;
+  int iftar_saat;
+  int iftar_dakika;
+};
+
+Vakit vakitler[] = { //şehrinizin imsak ve iftar vakitlerine göre değişmeniz lazım bu kısmı
+  {3,  5, 21, 18, 21}, {4,  5, 20, 18, 22}, {5,  5, 18, 18, 23},
+  {6,  5, 17, 18, 24}, {7,  5, 15, 18, 25}, {8,  5, 13, 18, 27},
+  {9,  5, 12, 18, 28}, {10, 5, 10, 18, 29}, {11, 5, 8,  18, 30},
+  {12, 5, 7,  18, 31}, {13, 5, 5,  18, 32}, {14, 5, 3,  18, 33},
+  {15, 5, 2,  18, 34}, {16, 5, 0,  18, 35}, {17, 4, 58, 18, 36},
+  {18, 4, 56, 18, 38}, {19, 4, 54, 18, 39}, {20, 4, 53, 18, 40},
+  {21, 4, 51, 18, 41}, {22, 4, 49, 18, 42}, {23, 4, 47, 18, 43},
+  {24, 4, 45, 18, 44}, {25, 4, 44, 18, 45}, {26, 4, 42, 18, 46},
+  {27, 4, 40, 18, 47}, {28, 4, 38, 18, 48}, {29, 4, 36, 18, 49}
+};
+
+void setup() {
+  Serial.begin(115200);
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(1000);
+    Serial.println("WiFi'ye bağlanıyor...");
+  }
+  Serial.println("WiFi bağlantısı başarılı.");
+
+  configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
+
+  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    Serial.println("OLED başlatılamadı.");
+    while (1);
+  }
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(WHITE);
+  pinMode(BUZZER_PIN, OUTPUT);
+}
+
+void loop() {
+  struct tm timeinfo;
+  if (!getLocalTime(&timeinfo)) {
+    Serial.println("Saat bilgisi alınamadı.");
+    return;
+  }
+
+  int gun = timeinfo.tm_mday;
+  int saat = timeinfo.tm_hour;
+  int dakika = timeinfo.tm_min;
+
+  for (int i = 0; i < sizeof(vakitler) / sizeof(Vakit); i++) {
+    if (vakitler[i].gun == gun) {
+      int imsak_saat = vakitler[i].imsak_saat;
+      int imsak_dakika = vakitler[i].imsak_dakika;
+      int iftar_saat = vakitler[i].iftar_saat;
+      int iftar_dakika = vakitler[i].iftar_dakika;
+
+      display.clearDisplay();
+      display.setCursor(0, 0);
+      display.printf("Tarih: %02d/%02d/%04d\n", gun, timeinfo.tm_mon + 1, timeinfo.tm_year + 1900);
+      display.printf("Saat:  %02d:%02d\n", saat, dakika);
+      display.printf("IMSAK: %02d:%02d\n", imsak_saat, imsak_dakika);
+      display.printf("IFTAR: %02d:%02d\n", iftar_saat, iftar_dakika);
+      display.display();
+
+      if ((saat == imsak_saat && dakika == imsak_dakika) || (saat == iftar_saat && dakika == iftar_dakika)) {
+        for (int j = 0; j < 15; j++) {
+          digitalWrite(BUZZER_PIN, HIGH);
+          delay(500);
+          digitalWrite(BUZZER_PIN, LOW);
+          delay(500);
+        }
+      }
+      break;
+    }
+  }
+
+  delay(60000);  // 1 dakika bekleyerek gereksiz döngüleri önle
+}
